@@ -37,18 +37,25 @@ app.use(cookieParser())
 //
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  // Keep localhost allowed in development — harmless in production
-  // because browsers never send Origin: http://localhost for real users.
+  process.env.FRONTEND_URL_2,           // optional second Vercel URL
+  // Keep localhost allowed in development
   'http://localhost:3000',
   'http://localhost:3001',
+  // Vercel preview deployments (*.vercel.app)
 ].filter(Boolean)
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true                          // curl / Postman / SSR
+  if (allowedOrigins.includes(origin)) return true
+  // Allow ALL Vercel preview URLs for this project
+  if (/^https:\/\/kurti-cove-frontend[^.]*\.vercel\.app$/.test(origin)) return true
+  return false
+}
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (curl, Postman, server-to-server)
-      if (!origin) return callback(null, true)
-      if (allowedOrigins.includes(origin)) return callback(null, true)
+      if (isAllowedOrigin(origin)) return callback(null, true)
       callback(new Error(`CORS policy: origin "${origin}" is not allowed`))
     },
     credentials: true,
