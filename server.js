@@ -37,18 +37,16 @@ app.use(cookieParser())
 //
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  process.env.FRONTEND_URL_2,           // optional second Vercel URL
-  // Keep localhost allowed in development
+  process.env.FRONTEND_URL_2,
   'http://localhost:3000',
   'http://localhost:3001',
-  // Vercel preview deployments (*.vercel.app)
 ].filter(Boolean)
 
 const isAllowedOrigin = (origin) => {
-  if (!origin) return true                          // curl / Postman / SSR
+  if (!origin) return true
   if (allowedOrigins.includes(origin)) return true
-  // Allow ALL Vercel preview URLs for this project
-  if (/^https:\/\/kurti-cove-frontend[^.]*\.vercel\.app$/.test(origin)) return true
+  // Allow all Vercel deployments for this project (http + https)
+  if (/^https?:\/\/kurti-cove-frontend[^.]*\.vercel\.app$/.test(origin)) return true
   return false
 }
 
