@@ -11,6 +11,8 @@ import OrderRoutes   from './routes/OrderRoutes.js'
 import SaleRoutes    from './routes/SaleRoutes.js'
 import ReviewRoutes  from './routes/ReviewRoutes.js'
 import { getHomeData } from './controllers/ProductController.js'
+import { seedAdmin }   from './utils/seedAdmin.js'
+import { startKeepAlive } from './utils/keepAlive.js'
 
 dotenv.config()
 
@@ -95,8 +97,10 @@ if (!MONGODB_URI) {
 
 mongoose
   .connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('✅  MongoDB connected successfully')
+    await seedAdmin()       // Create default admin if not exists
+    startKeepAlive()        // Keep Render free tier awake
     app.listen(PORT, () => {
       console.log(`🚀  Kurti Cove API listening on port ${PORT}`)
     })
