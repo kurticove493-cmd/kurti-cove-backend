@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import dotenv from 'dotenv'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
+import compression from 'compression'
 
 import UserRoutes    from './routes/UserRoutes.js'
 import ProductRoutes from './routes/ProductRoutes.js'
@@ -23,6 +24,7 @@ const app = express()
 app.set('trust proxy', 1)
 
 // ─── Core Middleware ──────────────────────────────────────────
+app.use(compression())
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 app.use(cookieParser())
