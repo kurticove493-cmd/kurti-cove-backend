@@ -234,3 +234,107 @@ export const sendWelcomeEmail = async (email, name) => {
   `
   await sendEmail(email, subject, html)
 }
+
+/**
+ * Notify admin when a new UPI order is placed and awaiting manual verification.
+ */
+export const sendAdminUpiNotification = async (order) => {
+  const adminEmail = process.env.ADMIN_EMAIL || process.env.BREVO_SENDER_EMAIL
+  if (!adminEmail) {
+    console.warn('⚠️  ADMIN_EMAIL not set — skipping admin UPI notification.')
+    return
+  }
+
+  const itemsList = (order.items || [])
+    .map(i => `<tr><td style="padding:6px 0;border-bottom:1px solid #f0f0f0;">${i.name}</td><td style="padding:6px 0;border-bottom:1px solid #f0f0f0;text-align:right;">x${i.qty} — ₹${(i.price * i.qty).toLocaleString()}</td></tr>`)
+    .join('')
+
+  const subject = `🔔 New UPI Order Pending Verification — #${String(order._id).slice(-8).toUpperCase()}`
+  const html = `
+    <!DOCTYPE html><html><body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background:#f5f5f5;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px;">
+    <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #e8e8e8;">
+      <tr><td style="background:#141414;padding:24px 32px;">
+        <h2 style="margin:0;color:#fff;font-size:18px;font-weight:700;">🔔 UPI Payment Pending Verification</h2>
+      </td></tr>
+      <tr><td style="padding:28px 32px;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr><td style="font-size:12px;color:#888;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;padding-bottom:4px;">Order ID</td>
+              <td style="font-size:13px;font-weight:700;font-family:monospace;text-align:right;">#${String(order._id).slice(-8).toUpperCase()}</td></tr>
+          <tr><td style="font-size:12px;color:#888;padding:4px 0;">Payment Method</td>
+              <td style="font-size:13px;font-weight:600;text-align:right;">${(order.paymentMethod || 'UPI').toUpperCase()}</td></tr>
+          <tr><td style="font-size:12px;color:#888;padding:4px 0;">Total Amount</td>
+              <td style="font-size:16px;font-weight:700;color:#141414;text-align:right;">₹${order.totalAmount?.toLocaleString()}</td></tr>
+          <tr><td style="font-size:12px;color:#888;padding:4px 0;">Placed At</td>
+              <td style="font-size:12px;text-align:right;">${new Date(order.createdAt || Date.now()).toLocaleString('en-IN')}</td></tr>
+        </table>
+        <h4 style="margin:0 0 12px;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#888;">Items Ordered</h4>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;font-size:13px;">${itemsList}</table>
+        <div style="background:#fef9c3;border:1px solid #fde68a;padding:14px 16px;margin-bottom:20px;">
+          <p style="margin:0;font-size:13px;font-weight:600;color:#854d0e;">⚠️ Action Required: Verify UPI Payment Manually</p>
+          <p style="margin:6px 0 0;font-size:12px;color:#92400e;">Check your UPI app or bank statement and confirm/reject this order in the admin panel.</p>
+        </div>
+        <p style="margin:0;font-size:12px;color:#888;">Go to Admin Panel → Orders to confirm or reject this payment.</p>
+      </td></tr>
+    </table>
+    </td></tr></table>
+    </body></html>
+  `
+  await sendEmail(adminEmail, subject, html)
+}
+
+/**
+ * Send order confirmation to customer after admin verifies UPI payment.
+ */
+export const sendOrderConfirmationEmail = async (email, name, order) => {
+  const subject = `✅ Order Confirmed — #${String(order._id).slice(-8).toUpperCase()}`
+  const frontendUrl = process.env.FRONTEND_URL || 'https://kurti-cove-frontend-phi.vercel.app'
+  const html = `
+    <!DOCTYPE html><html><body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background:#f5f5f5;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px;">
+    <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #e8e8e8;">
+      <tr><td style="background:#166534;padding:24px 32px;">
+        <h2 style="margin:0;color:#fff;font-size:18px;font-weight:700;">✅ Order Confirmed!</h2>
+      </td></tr>
+      <tr><td style="padding:28px 32px;">
+        <p style="margin:0 0 16px;font-size:14px;color:#141414;">Hi <strong>${name}</strong>, your payment has been verified and your order is confirmed!</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr><td style="font-size:12px;color:#888;">Order ID</td>
+              <td style="font-size:13px;font-weight:700;font-family:monospace;text-align:right;">#${String(order._id).slice(-8).toUpperCase()}</td></tr>
+          <tr><td style="font-size:12px;color:#888;padding-top:6px;">Total Paid</td>
+              <td style="font-size:15px;font-weight:700;color:#166534;text-align:right;padding-top:6px;">₹${order.totalAmount?.toLocaleString()}</td></tr>
+        </table>
+        <div style="text-align:center;margin-top:24px;">
+          <a href="${frontendUrl}/orders" style="display:inline-block;background:#141414;color:#fff;text-decoration:none;padding:12px 32px;font-size:13px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;">View Order</a>
+        </div>
+      </td></tr>
+    </table>
+    </td></tr></table>
+    </body></html>
+  `
+  await sendEmail(email, subject, html)
+}
+
+/**
+ * Notify customer that their UPI payment was not verified.
+ */
+export const sendOrderRejectionEmail = async (email, name, order) => {
+  const subject = `Order Update — Payment Not Verified #${String(order._id).slice(-8).toUpperCase()}`
+  const html = `
+    <!DOCTYPE html><html><body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background:#f5f5f5;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px;">
+    <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #e8e8e8;">
+      <tr><td style="background:#991b1b;padding:24px 32px;">
+        <h2 style="margin:0;color:#fff;font-size:18px;font-weight:700;">Payment Not Verified</h2>
+      </td></tr>
+      <tr><td style="padding:28px 32px;">
+        <p style="margin:0 0 16px;font-size:14px;color:#141414;">Hi <strong>${name}</strong>, we were unable to verify your UPI payment for order <strong>#${String(order._id).slice(-8).toUpperCase()}</strong>.</p>
+        ${order.paymentRejectionReason ? `<p style="font-size:13px;color:#666;background:#fef2f2;border:1px solid #fecaca;padding:12px 16px;margin-bottom:16px;"><strong>Reason:</strong> ${order.paymentRejectionReason}</p>` : ''}
+        <p style="font-size:13px;color:#666;">If you believe this is an error, please contact our support team with your payment screenshot.</p>
+      </td></tr>
+    </table>
+    </td></tr></table>
+    </body></html>
+  `
+  await sendEmail(email, subject, html)
+}

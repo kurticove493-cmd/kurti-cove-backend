@@ -1,5 +1,9 @@
 import OrderModel from '../models/OrderModel.js'
 import CartModel from '../models/CartModel.js'
+import { sendAdminUpiNotification, sendOrderConfirmationEmail, sendOrderRejectionEmail } from '../services/emailService.js'
+
+// UPI payment methods
+const UPI_METHODS = ['upi', 'phonepe', 'googlepay']
 
 // ─────────────────────────────────────────────────────────────
 // @desc    Place a new order (UPI / PhonePe / GooglePay / COD)
@@ -11,7 +15,6 @@ export const placeOrder = async (req, res) => {
     const {
       address,
       paymentMethod = 'upi',
-      paymentStatus = 'pending',
     } = req.body
     const userId = req.user._id
 
@@ -20,14 +23,10 @@ export const placeOrder = async (req, res) => {
       return res.status(400).json({ success: false, msg: 'Complete delivery address is required.' })
     }
 
-    // Validate payment method
-    const validMethods  = ['cod', 'upi', 'phonepe', 'googlepay']
-    const validStatuses = ['pending', 'pending_verification', 'paid', 'failed']
+    // Validate payment method — never trust paymentStatus from browser
+    const validMethods = ['cod', 'upi', 'phonepe', 'googlepay']
     if (!validMethods.includes(paymentMethod)) {
       return res.status(400).json({ success: false, msg: 'Invalid payment method.' })
-    }
-    if (paymentStatus && !validStatuses.includes(paymentStatus)) {
-      return res.status(400).json({ success: false, msg: 'Invalid payment status.' })
     }
 
     // Fetch cart from DB — never trust frontend totals
@@ -71,12 +70,24 @@ export const placeOrder = async (req, res) => {
       deliveryCharge,
       totalAmount,
       paymentMethod,
-      paymentStatus,
-      orderStatus: 'placed',
+      // Server always decides paymentStatus — never trust browser value
+      paymentStatus: 'pending',
+      orderStatus: UPI_METHODS.includes(paymentMethod) ? 'awaiting_payment' : 'placed',
     })
 
-    // Clear cart after successful order (remove all items including any orphaned ones)
+    // Clear cart after successful order
     await CartModel.findOneAndUpdate({ userId }, { items: [] })
+
+    // Send admin notification for UPI orders (non-blocking)
+    if (UPI_METHODS.includes(paymentMethod)) {
+      try {
+        await sendAdminUpiNotification(order)
+        order.adminNotificationSent = true
+        await order.save()
+      } catch (err) {
+        console.error('Admin UPI notification failed (non-fatal):', err.message)
+      }
+    }
 
     return res.status(201).json({ success: true, msg: 'Order placed successfully.', data: order })
   } catch (error) {
@@ -245,5 +256,103 @@ export const getAllOrders = async (req, res) => {
   } catch (error) {
     console.error('getAllOrders error:', error)
     return res.status(500).json({ success: false, msg: 'Server error fetching orders.' })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// @desc    Admin — confirm UPI payment manually
+// @route   PATCH /api/order/admin/confirm-payment/:id
+// @access  Admin
+// ─────────────────────────────────────────────────────────────
+export const confirmPayment = async (req, res) => {
+  try {
+    const { paymentReference } = req.body
+
+    const order = await OrderModel.findById(req.params.id).populate('user', 'name email')
+    if (!order) {
+      return res.status(404).json({ success: false, msg: 'Order not found.' })
+    }
+
+    // Only allow confirming orders that are actually pending
+    const confirmableStatuses = ['pending', 'pending_verification', 'awaiting_verification']
+    if (!confirmableStatuses.includes(order.paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        msg: `Cannot confirm payment. Current payment status is "${order.paymentStatus}".`,
+      })
+    }
+
+    order.paymentStatus      = 'paid'
+    order.orderStatus        = 'confirmed'
+    order.paymentConfirmedBy = req.user._id
+    order.paymentConfirmedAt = new Date()
+    if (paymentReference) order.paymentReference = paymentReference
+
+    await order.save()
+
+    // Notify customer (non-fatal)
+    try {
+      if (order.user?.email) {
+        await sendOrderConfirmationEmail(order.user.email, order.user.name, order)
+      }
+    } catch (err) {
+      console.error('Order confirmation email failed (non-fatal):', err.message)
+    }
+
+    return res.status(200).json({ success: true, msg: 'Payment confirmed successfully.', data: order })
+  } catch (error) {
+    console.error('confirmPayment error:', error)
+    return res.status(500).json({ success: false, msg: 'Server error confirming payment.' })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// @desc    Admin — reject UPI payment manually
+// @route   PATCH /api/order/admin/reject-payment/:id
+// @access  Admin
+// ─────────────────────────────────────────────────────────────
+export const rejectPayment = async (req, res) => {
+  try {
+    const { rejectionReason } = req.body
+
+    if (!rejectionReason || !rejectionReason.trim()) {
+      return res.status(400).json({ success: false, msg: 'Rejection reason is required.' })
+    }
+
+    const order = await OrderModel.findById(req.params.id).populate('user', 'name email')
+    if (!order) {
+      return res.status(404).json({ success: false, msg: 'Order not found.' })
+    }
+
+    const rejectableStatuses = ['pending', 'pending_verification', 'awaiting_verification']
+    if (!rejectableStatuses.includes(order.paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        msg: `Cannot reject payment. Current payment status is "${order.paymentStatus}".`,
+      })
+    }
+
+    order.paymentStatus           = 'rejected'
+    order.orderStatus             = 'cancelled'
+    order.cancelledAt             = new Date()
+    order.paymentRejectedBy       = req.user._id
+    order.paymentRejectedAt       = new Date()
+    order.paymentRejectionReason  = rejectionReason.trim()
+
+    await order.save()
+
+    // Notify customer (non-fatal)
+    try {
+      if (order.user?.email) {
+        await sendOrderRejectionEmail(order.user.email, order.user.name, order)
+      }
+    } catch (err) {
+      console.error('Order rejection email failed (non-fatal):', err.message)
+    }
+
+    return res.status(200).json({ success: true, msg: 'Payment rejected.', data: order })
+  } catch (error) {
+    console.error('rejectPayment error:', error)
+    return res.status(500).json({ success: false, msg: 'Server error rejecting payment.' })
   }
 }

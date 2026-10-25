@@ -43,17 +43,26 @@ const orderSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'pending_verification', 'paid', 'failed'],
+      enum: ['pending', 'pending_verification', 'awaiting_verification', 'paid', 'failed', 'rejected', 'refunded'],
       default: 'pending',
     },
 
     orderStatus: {
       type: String,
-      enum: ['placed', 'confirmed', 'shipped', 'out_for_delivery', 'delivered', 'cancelled'],
+      enum: ['awaiting_payment', 'placed', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'cancelled'],
       default: 'placed',
     },
     cancelledAt: { type: Date, default: null },
     deliveredAt: { type: Date, default: null },
+
+    // UPI manual verification fields
+    paymentReference:      { type: String,   default: null },
+    paymentConfirmedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    paymentConfirmedAt:    { type: Date,     default: null },
+    paymentRejectedBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    paymentRejectedAt:     { type: Date,     default: null },
+    paymentRejectionReason:{ type: String,   default: null },
+    adminNotificationSent: { type: Boolean,  default: false },
   },
   { timestamps: true }
 )
