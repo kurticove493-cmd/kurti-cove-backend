@@ -1,6 +1,7 @@
 import OrderModel from '../models/OrderModel.js'
 import CartModel from '../models/CartModel.js'
 import { sendAdminUpiNotification, sendOrderConfirmationEmail, sendOrderRejectionEmail } from '../services/emailService.js'
+import { broadcastToAdmins } from '../utils/sseManager.js'
 
 // UPI payment methods
 const UPI_METHODS = ['upi', 'phonepe', 'googlepay']
@@ -78,7 +79,18 @@ export const placeOrder = async (req, res) => {
     // Clear cart after successful order
     await CartModel.findOneAndUpdate({ userId }, { items: [] })
 
-    // Send admin notification for UPI orders (non-blocking)
+    // Broadcast real-time SSE alert to all connected admins (non-blocking)
+    if (UPI_METHODS.includes(paymentMethod)) {
+      broadcastToAdmins('new_upi_order', {
+        orderId:   String(order._id),
+        amount:    order.totalAmount,
+        method:    order.paymentMethod,
+        itemCount: order.items.length,
+        createdAt: order.createdAt,
+      })
+    }
+
+    // Send admin notification email for UPI orders (non-blocking)
     if (UPI_METHODS.includes(paymentMethod)) {
       try {
         await sendAdminUpiNotification(order)
